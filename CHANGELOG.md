@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`scripts/solidify_mesh.py`: hollow, holed meshes come out solid and watertight.**
+  TRELLIS.2's remesh wraps every surface in two skins a voxel apart, so a rock is really a
+  paper-thin eggshell, and every hole in the decode becomes a tunnel through it. A
+  296k-face boulder measured ~90 of them and held 0.005 of volume against a convex hull of
+  0.32. This fills the shell solid, seals holes up to a set width, puts the new skin back
+  on the old surface (median shift 0.08% of the asset's size) and re-bakes the colour onto
+  it. A metallic-roughness map that is one flat value becomes two plain numbers. The
+  boulder came out sealed, in one piece, at half the faces and half the file size, in
+  36 seconds. Meant for solid subjects: thin leaves and fur become blobs. Adds `xatlas`
+  (the UV unwrap) to the requirements.
 - **TRELLIS.2, Hunyuan3D-2.1 and Stable Fast 3D on AMD** (Linux, ROCm), building on the AMD
   support [@dlm21](https://github.com/dlm21) brought in 0.4.1 (#92). That release ran Pixal3D,
   Generate Image and Auto-rig on an AMD card and said these three needed NVIDIA-only parts;

@@ -16,6 +16,10 @@ scipy>=1.10
 # Pixel Match's alignment matches picture patches (already pulled in by rembg).
 opencv-python-headless>=4.8
 fast_simplification>=0.1.7
+# scripts/solidify_mesh.py: marching cubes (already pulled in by rembg, named because
+# we import it ourselves) and the UV unwrap for its colour re-bake.
+scikit-image>=0.22
+xatlas>=0.0.9
 rtree>=1.2
 
 # The MCP server agents connect to (./lab mcp). 2.x: FastMCP became MCPServer.

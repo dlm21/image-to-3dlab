@@ -217,7 +217,9 @@ rpds-py==2026.6.3
 rtree==1.4.1
     # via -r requirements.txt
 scikit-image==0.26.0
-    # via rembg
+    # via
+    #   -r requirements.txt
+    #   rembg
 scipy==1.17.1
     # via
     #   -r requirements.txt
@@ -276,3 +278,5 @@ urllib3==2.8.0
     # via requests
 uvicorn==0.54.0 ; sys_platform != 'emscripten'
     # via mcp
+xatlas==0.0.11
+    # via -r requirements.txt

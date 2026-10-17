@@ -93,6 +93,7 @@ Everything here operates on a GLB or a cached decode and is headless.
 | `remove_loose_parts.py` | Delete disconnected junk from a generated mesh, keeping the texture intact. |
 | `visibility_cull.py` | Pure helpers for visibility-based face culling: keep only what is seen from outside. |
 | `remesh_to_target.py` | Decimate a mesh to a target face count via fast_simplification, with timing. |
+| `solidify_mesh.py` | Rebuild a hollow, holed shell as one solid, watertight skin, and re-bake its colour onto it. |
 | `crop_mesh.py` | Cut a region out of a mesh at full density, so it can be judged by eye. |
 
 ## Texture, colour and material
