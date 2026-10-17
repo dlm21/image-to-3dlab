@@ -589,6 +589,27 @@ def test_create_sends_keep_everything_only_when_ticked():
 
 
 @needs_node
+def test_create_sends_solidify_only_when_ticked():
+    out = _run("create.js", """
+      const on = m.planForm({ steps: ['model'], engine: 'trellis', solidify: true });
+      const off = m.planForm({ steps: ['model'], engine: 'trellis' });
+      console.log(JSON.stringify([on.get('solidify'), off.get('solidify')]));""")
+    assert out == ["1", None]
+
+
+@needs_node
+def test_only_engines_the_server_lists_offer_solidify():
+    """The server names the engines that can solidify here (NVIDIA/AMD TRELLIS); Create shows the box for those."""
+    catalog = {"solidify": ["trellis"], "backends": [
+        {"id": "trellis", "kind": "3d", "rank": 2, "state": "ready"},
+        {"id": "pixal3d", "kind": "3d", "rank": 1, "state": "ready"}]}
+    out = _run("jobs.js", f"""
+      console.log(JSON.stringify([m.readyEngines({json.dumps(catalog)}), m.readyEngines({{ backends: {json.dumps(catalog["backends"])} }})]
+        .map(list => list.map(e => [e.id, e.solidify]))));""")
+    assert out == [[["pixal3d", False], ["trellis", True]], [["pixal3d", False], ["trellis", False]]]
+
+
+@needs_node
 def test_every_finished_step_can_be_downloaded_on_its_own():
     """The raw model stays downloadable after Finish (asked for by a user who lost it)."""
     out = _run("library.js", f"""

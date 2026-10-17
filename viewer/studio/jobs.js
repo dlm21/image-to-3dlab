@@ -5,14 +5,18 @@
 export const TERMINAL = new Set(['done', 'error', 'cancelled']);
 const STALL_SECONDS = 180;
 
-/** The best ready 3D engine first, then the other ready ones (from GET /api/catalog). */
+/**
+ * The best ready 3D engine first, then the other ready ones (from GET /api/catalog). `solidify`
+ * says the engine can seal holes and fill the mesh solid on this machine.
+ */
 export function readyEngines(catalog) {
+  const solid = new Set(catalog?.solidify || []);
   return (catalog?.backends || [])
     // The server's state, the same one Setup shows: a built TRELLIS is ready even before its
     // weights arrive (they fetch on first run), so counting files here hid it from the picker.
     .filter((b) => b.kind === '3d' && b.state === 'ready')
     .sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99))
-    .map((b) => ({ id: b.id, label: b.label, license: b.license?.name || '', caveat: b.caveat || null }));
+    .map((b) => ({ id: b.id, label: b.label, license: b.license?.name || '', caveat: b.caveat || null, solidify: solid.has(b.id) }));
 }
 
 /** Where to poll a job: the start response's status_url, or the conventional path. */

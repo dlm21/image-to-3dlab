@@ -31,15 +31,17 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
   stage.appendChild(sheet);
   const state = { have: 'idea', want: 'character', stop: null, tips: false, useRecipe: true, text: '', file: null,
     engine: engines[0]?.id, firstMove: presets.find((p) => !p.take)?.id,
-    pic: { size: 768, steps: 8, newEachTime: true, seed: 42 }, keep: false,
+    pic: { size: 768, steps: 8, newEachTime: true, seed: 42 }, keep: false, solidify: false,
     frontBack: Boolean(frontBack?.ready) };  // the best result by default, when it can run
   // "Draw another picture": the picture's own description, word for word, so nothing is added twice
   if (prefill?.text) Object.assign(state, { text: prefill.text, useRecipe: false, want: prefill.want || state.want });
   const close = () => sheet.remove();
+  const canSolidify = () => Boolean(engines.find((e) => e.id === state.engine)?.solidify);  // NVIDIA/AMD TRELLIS
 
   const render = () => {
     if (ALLOWED[state.have][state.want] !== true) state.want = Object.keys(ALLOWED[state.have]).find((k) => ALLOWED[state.have][k] === true);
     const pixal = state.engine === 'pixal3d';
+    const solidifies = canSolidify();
     const plan = planFor(state.have, state.want, { frontBack: state.frontBack && pixal && Boolean(frontBack?.ready) });
     if (state.stop && !plan.includes(state.stop)) state.stop = null;
     const active = stopAfter(plan, state.stop);
@@ -71,7 +73,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
           <label class="check"><input type="checkbox" data-pic="newEachTime" ${state.pic.newEachTime ? 'checked' : ''}><span>New picture each time <span class="hint">untick to reuse a seed and get the same picture back</span></span></label>
           ${state.pic.newEachTime ? '' : `<label class="field">Seed<input type="number" data-pic="seed" step="1" value="${state.pic.seed}"></label>`}
         </div></details>` : ''}
-      ${active.includes('model') ? `<details class="adv"><summary>Advanced: 3D model</summary>${engines.length > 1 ? `<label class="field">Engine<select data-k="engine">${engines.map((e, i) => `<option value="${esc(e.id)}" ${e.id === state.engine ? 'selected' : ''}>${i ? '' : 'Best quality: '}${esc(e.label)}</option>`).join('')}</select></label>` : ''}${pixal && state.want !== 'set' ? (frontBack?.ready ? `<label class="check"><input type="checkbox" data-k="frontback" ${state.frontBack ? 'checked' : ''}><span>Front + back <span class="hint">draws the back too, so the sides and back match your picture instead of being guessed. A few minutes more on a Mac, under a minute on a Linux GPU.</span></span></label>` : frontBack?.hint ? `<p class="hint">Front + back is off. ${esc(frontBack.hint)}</p>` : '') : ''}<label class="check"><input type="checkbox" data-k="keep" ${state.keep ? 'checked' : ''}><span>Keep everything <span class="hint">textures, in-between meshes and resume files, for digging into a bad result. Takes a lot more disk.</span></span></label></details>` : ''}
+      ${active.includes('model') ? `<details class="adv"><summary>Advanced: 3D model</summary>${engines.length > 1 ? `<label class="field">Engine<select data-k="engine">${engines.map((e, i) => `<option value="${esc(e.id)}" ${e.id === state.engine ? 'selected' : ''}>${i ? '' : 'Best quality: '}${esc(e.label)}</option>`).join('')}</select></label>` : ''}${pixal && state.want !== 'set' ? (frontBack?.ready ? `<label class="check"><input type="checkbox" data-k="frontback" ${state.frontBack ? 'checked' : ''}><span>Front + back <span class="hint">draws the back too, so the sides and back match your picture instead of being guessed. A few minutes more on a Mac, under a minute on a Linux GPU.</span></span></label>` : frontBack?.hint ? `<p class="hint">Front + back is off. ${esc(frontBack.hint)}</p>` : '') : ''}${solidifies ? `<label class="check"><input type="checkbox" data-k="solidify" ${state.solidify ? 'checked' : ''}><span>Solidify (seal holes, solid fill) <span class="hint">Best for solid things like rocks and props; turns leaves and fur into blobs.</span></span></label>` : ''}<label class="check"><input type="checkbox" data-k="keep" ${state.keep ? 'checked' : ''}><span>Keep everything <span class="hint">textures, in-between meshes and resume files, for digging into a bad result. Takes a lot more disk.</span></span></label></details>` : ''}
       <p class="error" data-error hidden></p>
       <div class="row end"><span class="hint">${active.length} step${active.length === 1 ? '' : 's'}${active.includes('picture') ? ' · the picture uses Qwen-Image, run on this machine' : ''}</span><button type="submit" class="primary">Make it</button></div>
     </form>`;
@@ -110,6 +112,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
     q('[data-k="move"]')?.addEventListener('change', (e) => { state.firstMove = e.target.value; });
     q('[data-k="engine"]')?.addEventListener('change', (e) => { state.engine = e.target.value; render(); const d = sheet.querySelector('[data-k="keep"]')?.closest('details'); if (d) d.open = true; });
     q('[data-k="keep"]')?.addEventListener('change', (e) => { state.keep = e.target.checked; });
+    q('[data-k="solidify"]')?.addEventListener('change', (e) => { state.solidify = e.target.checked; });
     const reopen3d = () => { const d = sheet.querySelector('[data-k="keep"]')?.closest('details'); if (d) d.open = true; };
     q('[data-k="frontback"]')?.addEventListener('change', (e) => { state.frontBack = e.target.checked; render(); reopen3d(); });
     sheet.querySelectorAll('[data-pic]').forEach((el) => el.addEventListener('change', () => {
@@ -134,7 +137,8 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
         description: state.text.trim(), prompt: state.have === 'idea' ? composePrompt(state.text, state.want, recipes, state.useRecipe) : null,
         pictureSettings: active.includes('picture') ? pictureSettings(state.pic) : null,
         modelSeed: active.includes('model') ? freshSeed() : null,   // a new 3D try each time, like the picture
-        keepEverything: active.includes('model') && state.keep });
+        keepEverything: active.includes('model') && state.keep,
+        solidify: active.includes('model') && canSolidify() && state.solidify });
     };
     text?.focus();
   }
@@ -179,6 +183,7 @@ export function planForm(plan, made = {}) {
   if (plan.pictureSettings) form.append('picture_settings', JSON.stringify(plan.pictureSettings));
   if (plan.modelSeed != null) form.append('model_seed', String(plan.modelSeed));
   if (plan.keepEverything) form.append('keep_everything', '1');
+  if (plan.solidify) form.append('solidify', '1');
   form.append('made', JSON.stringify(made));
   if (plan.file) form.append('file', plan.file);
   return form;

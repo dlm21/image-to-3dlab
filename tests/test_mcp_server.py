@@ -58,7 +58,7 @@ class FakeHttp:
         if not self.alive:
             raise ConnectionError("refused")
         body = {
-            "api/catalog": CATALOG, "api/animate/models": PRESETS,
+            "api/catalog": getattr(self, "catalog", CATALOG), "api/animate/models": PRESETS,
             "api/recipes": {"goals": {"character": {"wording": "A-pose, plain background"}}},
             "api/assets": {"assets": [KNIGHT, DANCER, PICTURE]},
             "api/chains": {"running": None, "recent": [{"id": "r1", "status": "done", "done": ["picture"], "made": {"picture": "images/x.png"}}]},
@@ -398,7 +398,7 @@ def test_list_assets_rows_say_their_family_and_version(studio):
 def test_options_lists_the_main_and_every_advanced_knob():
     out = ms.options()
     assert set(out["advanced"]) == {"edge_fade", "nudge", "texture_size", "rig_from", "speed", "arms_away",
-                                    "keep_everything"}
+                                    "keep_everything", "solidify"}
     assert all("what" in spec and "default" in spec and "step" in spec for spec in out["advanced"].values())
     assert {"finish_detail", "pixel_match", "move"} <= set(out["main"])
 
@@ -410,7 +410,8 @@ def test_every_studio_control_has_an_mcp_twin():
     twin = {"faces": "finish_detail", "customFaces": "finish_detail", "photo": "pixel_match", "engine": "engine",
             "frontback": "front_and_back", "recipe": "add_wording", "move": "move", "text": "description",
             "edgefade": "edge_fade", "nudge": "nudge", "texture": "texture_size", "rigsource": "rig_from",
-            "speed": "speed", "spread": "arms_away", "keep": "keep_everything"}
+            "speed": "speed", "spread": "arms_away", "keep": "keep_everything",
+            "solidify": "solidify"}
     missing = sorted(controls - set(twin))
     assert not missing, f"Studio controls with no MCP twin: {missing}. Add them to ADVANCED (or main) and here."
     known = set(ms.ADVANCED) | set(ms.options()["main"]) | {"description"}
@@ -434,6 +435,14 @@ def test_advanced_texture_speed_and_arms_travel_with_the_plan(studio):
     assert json.loads(form["finish_settings"]) == {"texture_size": 4096}
     assert json.loads(form["move_settings"]) == {"speed": 1.5, "arm_spread": 10}
     assert form["keep_everything"] == "1"
+
+
+def test_solidify_travels_only_with_an_engine_that_can_do_it(studio):
+    studio.http.catalog = {**CATALOG, "solidify": ["trellis"]}
+    ms.create(studio, want="prop", description="a boulder", engine="trellis", advanced={"solidify": True})
+    assert sent(studio)["solidify"] == "1"
+    with pytest.raises(ms.StudioError, match="NVIDIA or AMD"):
+        ms.create(studio, want="prop", description="a boulder", engine="pixal3d", advanced={"solidify": True})
 
 
 def test_defaults_add_nothing_to_the_plan(studio):

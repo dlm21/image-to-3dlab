@@ -1484,6 +1484,20 @@ def test_solidify_is_off_by_default_and_passed_when_asked(tmp_path):
         api.validate_settings({"solidify": "yes"})
 
 
+def test_create_offers_solidify_only_where_the_generator_honours_it(tmp_path):
+    """NVIDIA and AMD TRELLIS have --solidify; the Mac port does not yet, so its box stays hidden."""
+    import trellis_cuda_generate
+
+    specs = {host: api.trellis_spec(host) for host in (api.NVIDIA, api.AMD, api.APPLE)}
+    assert {host: api.solidify_engines({"trellis": s}) for host, s in specs.items()} == {
+        api.NVIDIA: ["trellis"], api.AMD: ["trellis"], api.APPLE: []}
+    for spec in (s for s in specs.values() if s.solidify):
+        job = api.Job("0" * 32, tmp_path, tmp_path / "in.png", tmp_path / "out.glb",
+                      spec.validate_settings({"solidify": True}), "trellis")
+        assert trellis_cuda_generate.parse_args(spec.build_args(job)).solidify is True
+    assert "solidify" in api.catalog_payload()
+
+
 def test_cuda_args_are_ones_the_generator_accepts(tmp_path):
     import trellis_cuda_generate
 

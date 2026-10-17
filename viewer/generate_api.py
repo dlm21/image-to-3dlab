@@ -305,6 +305,9 @@ class BackendSpec:
     """Runs after the subprocess exits 0, before the output-file existence check — for
     backends whose wrapper doesn't write directly to job.output_path (SF3D writes
     ``<stem>_sf3d.glb`` instead)."""
+    solidify: bool = False
+    """Whether ``build_args`` honours the ``solidify`` setting, so Create can offer the box
+    (see scripts/solidify_mesh.py). Off where the generator has no --solidify yet."""
     hidden_fields: tuple[str, ...] = ()
     """Element ids of Generate-tab controls this spec ignores, so the page hides them
     (the Mac-only attention option means nothing on the NVIDIA route)."""
@@ -417,7 +420,13 @@ def catalog_payload() -> dict:
     payload = with_rebuild_reasons(catalog_status())
     payload["running_setup"] = running_payload()
     payload["front_back"] = front_back_status()
+    payload["solidify"] = solidify_engines()
     return payload
+
+
+def solidify_engines(specs: dict[str, BackendSpec] | None = None) -> list[str]:
+    """The 3D engines whose generator can solidify a hollow mesh on this machine."""
+    return [spec.id for spec in (BACKENDS if specs is None else specs).values() if spec.solidify]
 
 
 def with_rebuild_reasons(catalog: dict[str, Any],
@@ -2023,7 +2032,7 @@ def trellis_spec(host: str | None = None) -> BackendSpec:
             validate_settings=validate_settings, build_args=_trellis_cuda_build_args,
             parse_line=_trellis_parse_line, readiness=cuda_setup_status,
             baseline_path=BASELINE_PATH,
-            hidden_fields=("generate-attention",),
+            hidden_fields=("generate-attention",), solidify=True,
         )
     if (host or host_platform()) == AMD:
         # Same spec as NVIDIA but the ROCm venv: like it, this route mattes images itself
@@ -2038,7 +2047,7 @@ def trellis_spec(host: str | None = None) -> BackendSpec:
             validate_settings=validate_settings, build_args=_trellis_cuda_build_args,
             parse_line=_trellis_parse_line, readiness=cuda_setup_status,
             baseline_path=BASELINE_PATH,
-            hidden_fields=("generate-attention",),
+            hidden_fields=("generate-attention",), solidify=True,
         )
     return BackendSpec(
         id="trellis", label="TRELLIS.2 (clean port)",

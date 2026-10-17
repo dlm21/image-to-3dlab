@@ -49,6 +49,12 @@ class FakeJobs:
                      "model": made["model"] if kind == "model" else None}
 
 
+def _form_of(body: bytes) -> tuple[str, bytes]:
+    """(content type, body) for a multipart body the runner sent, ready for parse_multipart."""
+    boundary = body.split(b"\r\n", 1)[0][2:].decode()
+    return f"multipart/form-data; boundary={boundary}", body
+
+
 def _runner(tmp_path, **fake):
     jobs = FakeJobs(tmp_path, **fake)
     return aa.ChainRunner(tmp_path, jobs, poll=0, sleep=lambda s: None), jobs
@@ -220,6 +226,37 @@ def test_keep_everything_is_off_unless_asked(tmp_path):
     runner.submit(chain, background=False)
     assert b"debug" not in next(b for m, p, b in jobs.calls if p == "/api/generate")
 
+
+
+def test_solidify_from_create_reaches_the_trellis_generator(tmp_path):
+    """Create's Solidify box, end to end: plan form -> chain -> /api/generate -> --solidify."""
+    from viewer import generate_api as api
+    from viewer.generate_api import parse_multipart
+    body, ctype = aa.multipart({"title": "x", "steps": json.dumps(["model"]), "engine": "trellis",
+                                "solidify": "1"}, {"file": ("rock.png", b"png")})
+    chain = aa.chain_from_form(parse_multipart(ctype, body))
+    runner, jobs = _runner(tmp_path)
+    runner.submit(chain, background=False)
+    sent = parse_multipart(*_form_of(next(b for m, p, b in jobs.calls if p == "/api/generate")))
+    settings = json.loads(sent["settings"]["value"])
+    assert settings["solidify"] is True
+    spec = api.trellis_spec(api.AMD)
+    job = api.Job("0" * 32, tmp_path, tmp_path / "in.png", tmp_path / "out.glb",
+                  spec.validate_settings(settings), "trellis")
+    assert "--solidify" in spec.build_args(job)
+
+
+def test_solidify_is_off_unless_asked(tmp_path):
+    from viewer.generate_api import parse_multipart
+    for value in (None, "", "0", "no"):
+        fields = {"title": "x", "steps": json.dumps(["model"]), "engine": "trellis"}
+        if value is not None:
+            fields["solidify"] = value
+        body, ctype = aa.multipart(fields, {"file": ("rock.png", b"png")})
+        assert aa.chain_from_form(parse_multipart(ctype, body)).solidify is False
+    runner, jobs = _runner(tmp_path)
+    runner.submit(aa.chain_from_form(parse_multipart(ctype, body)), background=False)
+    assert b"solidify" not in next(b for m, p, b in jobs.calls if p == "/api/generate")
 
 
 def test_a_front_and_back_character_draws_the_back_then_builds_from_both(tmp_path):

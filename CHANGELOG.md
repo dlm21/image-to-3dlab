@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     minute at 300k faces, and records what it did in the manifest and the provenance
     sidecar. If it fails, the run keeps the original mesh rather than losing the asset.
     The environment is checked before the model loads, not after.
+  - **In the Studio** as a "Solidify (seal holes, solid fill)" box under Create's
+    Advanced: 3D model, shown only when the engine can do it here (TRELLIS.2 on NVIDIA or
+    AMD). Agents get the same switch as the `solidify` advanced choice.
 - **TRELLIS.2, Hunyuan3D-2.1 and Stable Fast 3D on AMD** (Linux, ROCm), building on the AMD
   support [@dlm21](https://github.com/dlm21) brought in 0.4.1 (#92). That release ran Pixal3D,
   Generate Image and Auto-rig on an AMD card and said these three needed NVIDIA-only parts;

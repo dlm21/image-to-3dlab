@@ -316,6 +316,10 @@ ADVANCED: dict[str, dict[str, Any]] = {
     "keep_everything": {
         "step": "model", "type": "bool", "default": False,
         "what": "The 3D step keeps its in-between textures, meshes and caches (several GB) for inspection."},
+    "solidify": {
+        "step": "model", "type": "bool", "default": False,
+        "what": "Seals holes and fills the 3D model solid. TRELLIS.2 on NVIDIA or AMD only.",
+        "try_on_when": "a rock or prop comes out hollow or full of holes; it turns leaves and fur into blobs."},
 }
 
 
@@ -349,6 +353,15 @@ def read_advanced(advanced: dict[str, Any] | None) -> dict[str, Any]:
                 raise StudioError(f"advanced {name} is from {spec['min']:g} to {spec['max']:g}.")
         out[name] = value
     return out
+
+
+def solidify_field(adv: dict[str, Any], engine: str | None, catalog: dict[str, Any]) -> dict[str, str]:
+    """The plan's `solidify` field, refused where the engine cannot do it rather than ignored."""
+    if not adv["solidify"]:
+        return {}
+    if engine not in (catalog.get("solidify") or []):
+        raise StudioError(f"solidify needs TRELLIS.2 on NVIDIA or AMD; {engine or 'no engine'} can't do it here.")
+    return {"solidify": "1"}
 
 
 def plan_extras(adv: dict[str, Any], detail: str | int | None, pixel_match: bool) -> tuple[dict, dict]:
@@ -491,6 +504,8 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
         form["first_move"] = move
     if adv["keep_everything"] and "model" in steps:
         form["keep_everything"] = "1"
+    if "model" in steps:
+        form.update(solidify_field(adv, engine, catalog))
     choices, move_settings = plan_extras(adv, finish_detail, pixel_match)
     refused = full_detail_refusal(steps, choices)
     if refused:
@@ -554,6 +569,7 @@ def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, w
         form["model_seed"] = str(int.from_bytes(os.urandom(3), "big"))
         if adv["keep_everything"]:
             form["keep_everything"] = "1"
+        form.update(solidify_field(adv, engine, catalog))
     if "animated" in steps:
         moves = studio.get("api/animate/models")
         presets = moves.get("presets", []) if moves.get("installed") else []

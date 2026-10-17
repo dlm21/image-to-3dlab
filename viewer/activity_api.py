@@ -87,6 +87,7 @@ class Chain:
     picture_settings: dict[str, Any] = field(default_factory=dict)  # size, steps, seed (the image job checks them)
     model_seed: int | None = None                                    # a fresh 3D try each time; None = engine default
     keep_everything: bool = False                                    # the 3D step keeps its textures, meshes, caches
+    solidify: bool = False                                           # the 3D step seals holes and fills it solid
     finish_settings: dict[str, Any] = field(default_factory=dict)    # detail and Pixel Match (the finish job checks them)
     move_settings: dict[str, Any] = field(default_factory=dict)      # speed, arm_spread (the animate job checks them)
     made: dict[str, str | None] = field(default_factory=dict)       # picture/model/finished/rigged paths
@@ -290,6 +291,8 @@ class ChainRunner:
                 settings["seed"] = chain.model_seed
             if chain.keep_everything:
                 settings["debug"] = True
+            if chain.solidify:
+                settings["solidify"] = True
             files = {"image": self._picture(chain)}
             if chain.made.get("back") and chain.engine in FRONT_BACK_ENGINES:
                 files["back"] = self._file(chain.made["back"])
@@ -418,6 +421,7 @@ def chain_from_form(form: dict[str, dict[str, Any]]) -> Chain:
         if isinstance(picture, dict) else {},
         model_seed=int(text("model_seed")) if (text("model_seed") or "").isdigit() else None,
         keep_everything=text("keep_everything") in ("1", "true"),
+        solidify=text("solidify") in ("1", "true"),
         finish_settings={k: finish[k] for k in FINISH_KEYS if k in finish} if isinstance(finish, dict) else {},
         move_settings={k: move[k] for k in MOVE_KEYS if k in move} if isinstance(move, dict) else {},
         made={k: str(v) for k, v in made.items() if k in ("picture", "back", "model", "finished", "rigged") and v},
