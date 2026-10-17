@@ -681,6 +681,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "decimation_target": 300_000,
     "texture_size": 2048,
     "sparse_attn_backend": "sdpa",
+    # Off by default: it closes holes by filling, which turns thin parts (leaves, fur
+    # cards) into blobs. See scripts/solidify_mesh.py. NVIDIA/AMD routes only, for now.
+    "solidify": False,
 }
 VALID_RESOLUTIONS = {"512", "1024", "1536"}
 # sdpa is the default because mlx needs scripts/patch_trellis_mlx_attention.py applied to
@@ -773,6 +776,8 @@ def validate_settings(raw: Any) -> dict[str, Any]:
         raise ValueError("texture_size must be one of 1024, 2048, 3072, or 4096")
     if settings["sparse_attn_backend"] not in VALID_SPARSE_ATTN:
         raise ValueError("sparse_attn_backend must be one of sdpa, mlx, or mlx-fp16")
+    if not isinstance(settings["solidify"], bool):
+        raise ValueError("solidify must be true or false")  # noqa: TRY004 - callers catch ValueError
     settings["resolution"] = str(settings["resolution"])
     return settings
 
@@ -1435,6 +1440,8 @@ def _trellis_cuda_build_args(job: Job) -> list[str]:
         "--decimation-target", str(job.settings["decimation_target"]),
         "--texture-size", str(job.settings["texture_size"]),
     ]
+    if job.settings.get("solidify"):
+        args.append("--solidify")
     if not job.debug:
         args.append("--no-save-latents")
     return args

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -205,6 +206,73 @@ def provenance_path(output: Path) -> Path:
     return output.with_suffix(".provenance.json")
 
 
+# ----------------------------------------------------------------------------------------
+# --solidify: rebuild TRELLIS's hollow double skin as one closed, solid one
+# ----------------------------------------------------------------------------------------
+#: `scripts/solidify_mesh.py` needs xatlas and fast_simplification, which the vendored
+#: TRELLIS environments do not carry, so it runs in the repo's own interpreter.
+MAIN_PYTHON = REPO / ".venv" / "bin" / "python"
+SOLIDIFY_SCRIPT = REPO / "scripts" / "solidify_mesh.py"
+SOLIDIFY_IMPORTS = ("fast_simplification", "scipy", "skimage", "trimesh", "xatlas")
+
+
+def solidify_command(shell: Path, output: Path, report: Path, *, faces: int,
+                     texture_size: int, python: Path = MAIN_PYTHON) -> list[str]:
+    return [str(python), str(SOLIDIFY_SCRIPT), str(shell), str(output),
+            "--faces", str(faces), "--texture-size", str(texture_size),
+            "--report", str(report)]
+
+
+def solidify_environment_problem(python: Path = MAIN_PYTHON, run=subprocess.run) -> str | None:
+    """Why `--solidify` cannot run, or None. Seconds to check, so it is checked before the
+    model loads rather than discovered after a full generation."""
+    if not python.is_file():
+        return (f"--solidify runs in the repo's own environment, and {python} does not exist."
+                " Create it with: python -m pip install -r requirements.txt")
+    probe = run([str(python), "-c", "import " + ", ".join(SOLIDIFY_IMPORTS)],
+                capture_output=True, text=True)
+    if probe.returncode != 0:
+        reason = (probe.stderr.strip().splitlines() or ["import failed"])[-1]
+        return (f"--solidify: {python} cannot load its tools ({reason}). "
+                f"Install them with: {python} -m pip install -r requirements.txt")
+    return None
+
+
+def solidify_output(output: Path, *, faces: int, texture_size: int,
+                    run=subprocess.run) -> dict[str, Any]:
+    """Replace `output` with its solidified version, in place, and say what happened.
+
+    Never fails a finished generation: if the step goes wrong, the original GLB is put
+    back and the returned record carries the reason, so the run still ships an asset.
+    """
+    shell = output.with_name(output.stem + "_shell.glb")
+    report_path = output.with_name(output.stem + "_solidify.json")
+    output.replace(shell)
+    started = time.time()
+    try:
+        result = run(solidify_command(shell, output, report_path, faces=faces,
+                                      texture_size=texture_size))
+        if not output.is_file() or not report_path.is_file():
+            raise RuntimeError(f"solidify_mesh.py exited {result.returncode} without output")
+        report = json.loads(report_path.read_text())
+        record = {"applied": True, "settings": report["settings"],
+                  "watertight": report["after"]["watertight"],
+                  "volume": {"before": report["before"]["volume"],
+                             "after": report["after"]["volume"]},
+                  "faces": report["after"]["faces"], "material": report["material"],
+                  "shift_from_source": report["shift_from_source"]}
+        shell.unlink()
+    except Exception as exc:  # noqa: BLE001 - keep the shell rather than lose the run
+        output.unlink(missing_ok=True)
+        shell.replace(output)
+        record = {"applied": False, "error": str(exc)}
+        print(f"solidify skipped, original kept: {exc}", flush=True)
+    finally:
+        report_path.unlink(missing_ok=True)
+    record["seconds"] = round(time.time() - started, 1)
+    return record
+
+
 def backend_revision(vendor_root: Path, route: trellis_route.Route = ROUTE) -> str | None:
     marker = vendor_root / route.marker_name
     try:
@@ -341,6 +409,17 @@ def _decode_and_bake(pipeline, shape_slat, tex_slat, res, output: Path, *,
     return {"decode_latent": decode_seconds, "bake": bake_seconds}
 
 
+def _maybe_solidify(output: Path, enabled: bool, *, decimation_target: int,
+                    texture_size: int, timings: dict[str, float]) -> dict[str, Any]:
+    """Run `solidify_output` when asked; its record joins the run's parameters, so the
+    manifest and the provenance sidecar both say the mesh was rebuilt after TRELLIS."""
+    if not enabled:
+        return {}
+    record = solidify_output(output, faces=decimation_target, texture_size=texture_size)
+    timings["solidify"] = record["seconds"]
+    return {"solidify": record}
+
+
 def _write_records(*, image: Path, output: Path, params: dict[str, Any], pipeline_type: str,
                    seed: int, timings: dict[str, float], artifacts: dict[str, Any],
                    matte_model: str | None, vendor_root: Path,
@@ -361,7 +440,7 @@ def _write_records(*, image: Path, output: Path, params: dict[str, Any], pipelin
 def generate(image_path: Path, output: Path, vendor_root: Path, *, seed: int,
              resolution: str, decimation_target: int, texture_size: int,
              save_latents: bool, force_matte: bool = False,
-             allow_uncut: bool = False,
+             allow_uncut: bool = False, solidify: bool = False,
              route: trellis_route.Route = ROUTE) -> None:
     refusal = bria_refusal(vendor_root)
     if refusal:
@@ -405,6 +484,8 @@ def generate(image_path: Path, output: Path, vendor_root: Path, *, seed: int,
     stage_timings = _decode_and_bake(pipeline, shape_slat, tex_slat, res, output,
                                      decimation_target=decimation_target,
                                      texture_size=texture_size)
+    extra = _maybe_solidify(output, solidify, decimation_target=decimation_target,
+                            texture_size=texture_size, timings=stage_timings)
     artifacts: dict[str, Any] = {"glb": {"path": str(output), "sha256": sha256_file(output)}}
     if save_latents:
         artifacts["latents"] = {"path": str(latents_path), "sha256": sha256_file(latents_path)}
@@ -412,7 +493,7 @@ def generate(image_path: Path, output: Path, vendor_root: Path, *, seed: int,
         latents_path.unlink(missing_ok=True)
 
     params = {**DEMO_PARAMS, "resolution": resolution, "decimation_target": decimation_target,
-              "texture_size": texture_size}
+              "texture_size": texture_size, **extra}
     timings = {"pipeline_load": load_seconds, "run_stages_1_3": run_seconds, **stage_timings,
                "total": time.time() - started}
     _write_records(image=image_path, output=output, params=params,
@@ -424,6 +505,7 @@ def generate(image_path: Path, output: Path, vendor_root: Path, *, seed: int,
 
 def generate_from_latents(latents_path: Path, output: Path, vendor_root: Path, *,
                           decimation_target: int, texture_size: int,
+                          solidify: bool = False,
                           route: trellis_route.Route = ROUTE) -> None:
     """Resume from `<out>_latents.pt`: skip sampling, decode and bake only."""
     started = time.time()
@@ -438,9 +520,12 @@ def generate_from_latents(latents_path: Path, output: Path, vendor_root: Path, *
     stage_timings = _decode_and_bake(pipeline, shape_slat, tex_slat, int(bundle["res"]), output,
                                      decimation_target=decimation_target,
                                      texture_size=texture_size)
+    extra = _maybe_solidify(output, solidify, decimation_target=decimation_target,
+                            texture_size=texture_size, timings=stage_timings)
     image = Path(str(bundle.get("images", [latents_path])[0]))
     params = {**DEMO_PARAMS, "decimation_target": decimation_target,
-              "texture_size": texture_size, "resumed_from_latents": str(latents_path)}
+              "texture_size": texture_size, "resumed_from_latents": str(latents_path),
+              **extra}
     _write_records(image=image if image.is_file() else latents_path, output=output,
                    params=params,
                    pipeline_type=bundle.get("pipeline_type", "1024_cascade"),
@@ -471,6 +556,10 @@ def parse_args(argv: list[str] | None = None,
                         help="delete <out>_latents.pt once the GLB exists")
     parser.add_argument("--from-latents", type=Path, default=None,
                         help="resume from a cached *_latents.pt; give the GLB path positionally")
+    parser.add_argument("--solidify", action="store_true",
+                        help="rebuild the hollow two-skin mesh as one solid, watertight skin "
+                             "and re-bake its colour (scripts/solidify_mesh.py); for solid "
+                             "subjects, not foliage")
     parser.add_argument("--check", action="store_true",
                         help="verify the environment and exit (no model load)")
     return parser.parse_args(argv)
@@ -481,13 +570,18 @@ def main(argv: list[str] | None = None, route: trellis_route.Route = ROUTE) -> i
     vendor_root = args.vendor_root.resolve()
     if args.check:
         return check_environment(vendor_root, route)
+    if args.solidify:
+        problem = solidify_environment_problem()
+        if problem:
+            raise SystemExit(problem)
     if args.from_latents is not None:
         out = args.output or args.image
         if out is None or not args.from_latents.is_file():
             raise SystemExit("give an existing --from-latents bundle and the output GLB path")
         generate_from_latents(args.from_latents, out, vendor_root,
                               decimation_target=args.decimation_target,
-                              texture_size=args.texture_size, route=route)
+                              texture_size=args.texture_size, solidify=args.solidify,
+                              route=route)
         return 0
     if args.image is None or args.output is None:
         raise SystemExit("image and output are required (or pass --check)")
@@ -496,7 +590,8 @@ def main(argv: list[str] | None = None, route: trellis_route.Route = ROUTE) -> i
     generate(args.image, args.output, vendor_root, seed=args.seed,
              resolution=args.resolution, decimation_target=args.decimation_target,
              texture_size=args.texture_size, save_latents=args.save_latents,
-             force_matte=args.matte, allow_uncut=args.allow_uncut, route=route)
+             force_matte=args.matte, allow_uncut=args.allow_uncut,
+             solidify=args.solidify, route=route)
     return 0
 
 

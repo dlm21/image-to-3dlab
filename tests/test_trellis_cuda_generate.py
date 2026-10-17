@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import sys
 import types
+from pathlib import Path
 
 import patch_trellis_cuda_no_bria as bria_patch
 import pytest
@@ -215,3 +216,93 @@ def test_load_pipeline_on_amd_refuses_unpatched_attention_before_torch(tmp_path,
     monkeypatch.setitem(sys.modules, "torch", None)
     with pytest.raises(SystemExit, match="patch_trellis_rocm.py"):
         gen.load_pipeline(_vendor(tmp_path), gen.trellis_route.ROCM)
+
+
+# ---- --solidify --------------------------------------------------------------------------
+def test_solidify_is_off_unless_asked():
+    assert gen.parse_args(["in.png", "out.glb"]).solidify is False
+    assert gen.parse_args(["in.png", "out.glb", "--solidify"]).solidify is True
+
+
+def test_solidify_command_is_one_the_script_accepts(tmp_path):
+    import solidify_mesh
+
+    command = gen.solidify_command(tmp_path / "a.glb", tmp_path / "b.glb", tmp_path / "r.json",
+                                   faces=1234, texture_size=1024)
+    assert command[:2] == [str(gen.MAIN_PYTHON), str(gen.SOLIDIFY_SCRIPT)]
+    parsed = solidify_mesh.parse_args(command[2:])
+    assert (parsed.faces, parsed.texture_size) == (1234, 1024)
+    assert parsed.report == tmp_path / "r.json"
+
+
+def test_solidify_environment_names_a_missing_interpreter(tmp_path):
+    problem = gen.solidify_environment_problem(tmp_path / "nope" / "python")
+    assert "does not exist" in problem
+
+
+def test_solidify_environment_names_a_missing_import(tmp_path):
+    python = tmp_path / "python"
+    python.write_text("")
+    failed = types.SimpleNamespace(returncode=1,
+                                   stderr="Traceback\nModuleNotFoundError: No module named 'xatlas'")
+    problem = gen.solidify_environment_problem(python, run=lambda *a, **k: failed)
+    assert "xatlas" in problem and "requirements.txt" in problem
+    fine = types.SimpleNamespace(returncode=0, stderr="")
+    assert gen.solidify_environment_problem(python, run=lambda *a, **k: fine) is None
+
+
+def _fake_solidify(write: bool):
+    def run(command, **_):
+        source, output, report = Path(command[2]), Path(command[3]), Path(command[-1])
+        assert source.read_bytes() == b"shell"  # it is handed the original
+        if write:
+            output.write_bytes(b"solid")
+            report.write_text(json.dumps({
+                "settings": {"faces": 10}, "before": {"volume": 0.005},
+                "after": {"volume": 0.29, "watertight": True, "faces": 10},
+                "material": {"baked": True}, "shift_from_source": {"median": 0.0007}}))
+        return types.SimpleNamespace(returncode=0 if write else 1)
+    return run
+
+
+def test_solidify_output_replaces_the_glb_and_tidies_up(tmp_path):
+    out = tmp_path / "rock.glb"
+    out.write_bytes(b"shell")
+    record = gen.solidify_output(out, faces=10, texture_size=256, run=_fake_solidify(True))
+    assert out.read_bytes() == b"solid"
+    assert record["applied"] and record["watertight"]
+    assert record["volume"] == {"before": 0.005, "after": 0.29}
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["rock.glb"]
+    json.dumps(record)
+
+
+def test_a_failed_solidify_keeps_the_original(tmp_path, capsys):
+    out = tmp_path / "rock.glb"
+    out.write_bytes(b"shell")
+    record = gen.solidify_output(out, faces=10, texture_size=256, run=_fake_solidify(False))
+    assert out.read_bytes() == b"shell"
+    assert record["applied"] is False and "without output" in record["error"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["rock.glb"]
+    assert "original kept" in capsys.readouterr().out
+
+
+def test_maybe_solidify_records_into_params_and_timings(tmp_path, monkeypatch):
+    monkeypatch.setattr(gen, "solidify_output",
+                        lambda output, **_: {"applied": True, "seconds": 3.0})
+    timings = {}
+    assert gen._maybe_solidify(tmp_path / "x.glb", False, decimation_target=1,
+                               texture_size=1, timings=timings) == {}
+    assert timings == {}
+    extra = gen._maybe_solidify(tmp_path / "x.glb", True, decimation_target=1,
+                                texture_size=1, timings=timings)
+    assert extra == {"solidify": {"applied": True, "seconds": 3.0}}
+    assert timings == {"solidify": 3.0}
+
+
+def test_solidify_refuses_before_the_model_loads(tmp_path, monkeypatch):
+    image = tmp_path / "in.png"
+    image.write_bytes(b"")
+    monkeypatch.setattr(gen, "solidify_environment_problem", lambda: "no xatlas here")
+    monkeypatch.setattr(gen, "generate", lambda *a, **k: pytest.fail("generated anyway"))
+    with pytest.raises(SystemExit, match="no xatlas here"):
+        gen.main([str(image), str(tmp_path / "out.glb"), "--solidify"])

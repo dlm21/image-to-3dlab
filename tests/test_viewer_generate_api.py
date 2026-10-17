@@ -1471,6 +1471,19 @@ def test_cuda_args_drop_the_mac_only_flags(tmp_path):
     assert "--no-save-latents" not in api._trellis_cuda_build_args(job)
 
 
+def test_solidify_is_off_by_default_and_passed_when_asked(tmp_path):
+    import trellis_cuda_generate
+
+    job = api.Job("0" * 32, tmp_path, tmp_path / "in.png", tmp_path / "out.glb",
+                  api.validate_settings({}), "trellis")
+    assert "--solidify" not in api._trellis_cuda_build_args(job)
+    job.settings = api.validate_settings({"solidify": True})
+    args = api._trellis_cuda_build_args(job)
+    assert trellis_cuda_generate.parse_args(args).solidify is True
+    with pytest.raises(ValueError):
+        api.validate_settings({"solidify": "yes"})
+
+
 def test_cuda_args_are_ones_the_generator_accepts(tmp_path):
     import trellis_cuda_generate
 

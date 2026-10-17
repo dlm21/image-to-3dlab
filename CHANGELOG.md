@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   boulder came out sealed, in one piece, at half the faces and half the file size, in
   36 seconds. Meant for solid subjects: thin leaves and fur become blobs. Adds `xatlas`
   (the UV unwrap) to the requirements.
+  - **On the TRELLIS.2 NVIDIA and AMD routes** as `--solidify` (and a `solidify` setting
+    in the viewer's generate API), off by default. It runs as the last step, about a
+    minute at 300k faces, and records what it did in the manifest and the provenance
+    sidecar. If it fails, the run keeps the original mesh rather than losing the asset.
+    The environment is checked before the model loads, not after.
 - **TRELLIS.2, Hunyuan3D-2.1 and Stable Fast 3D on AMD** (Linux, ROCm), building on the AMD
   support [@dlm21](https://github.com/dlm21) brought in 0.4.1 (#92). That release ran Pixal3D,
   Generate Image and Auto-rig on an AMD card and said these three needed NVIDIA-only parts;
